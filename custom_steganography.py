@@ -5,7 +5,7 @@ from utils import append_checksum, verify_checksum, image_to_matrix, save_image
 from evaluation import evaluate_steganography, calculate_custom_max_capacity
 
 class CustomSteganographySystem:
-    def __init__(self, block_size=8, sub_block_size=1, segment_length=2, lfsr_seed=0x1234, variance_threshold=2000):
+    def __init__(self, block_size=8, sub_block_size=1, segment_length=2, lfsr_seed=0x1234, variance_threshold=5000):
         self.block_size = block_size
         self.sub_block_size = sub_block_size
         self.segment_length = segment_length
@@ -542,17 +542,30 @@ class CustomSteganographySystem:
         # Calculate maximum capacity
         max_capacity = calculate_custom_max_capacity(self.original_matrix, self.variance_threshold, self.block_size)
         
-        # Extract data from stego image
-        extracted_bitstream, _ = self.extract_data(
-            stego_img, 
-            self.mother_child_pairs, 
-            self.perturbation_mapping
-        )
-        
-        # Trim to original length
-        if hasattr(self, 'original_with_checksum_length'):
-            extracted_bitstream = extracted_bitstream[:self.original_with_checksum_length]
-        
-        # Verify checksum and evaluate
-        is_valid, data_bitstream = verify_checksum(extracted_bitstream)
-        return evaluate_steganography(self.original_matrix, stego_img, self.encoded_data, data_bitstream, max_capacity) 
+        # Try to extract data from stego image
+        try:
+            extracted_bitstream, _ = self.extract_data(
+                stego_img, 
+                self.mother_child_pairs, 
+                self.perturbation_mapping
+            )
+            
+            # Trim to original length
+            if hasattr(self, 'original_with_checksum_length'):
+                extracted_bitstream = extracted_bitstream[:self.original_with_checksum_length]
+            
+            # Verify checksum
+            is_valid, data_bitstream = verify_checksum(extracted_bitstream)
+            
+            if is_valid:
+                # Successful extraction and checksum verification
+                return evaluate_steganography(self.original_matrix, stego_img, self.encoded_data, data_bitstream, max_capacity)
+            else:
+                print("Warning: Checksum verification failed, but calculating visual quality metrics")
+                # Use extracted data for real bit accuracy calculation even when checksum fails
+                return evaluate_steganography(self.original_matrix, stego_img, self.encoded_data, data_bitstream, max_capacity, checksum_failed=True)
+                
+        except Exception as e:
+            print(f"Warning: Data extraction failed ({e}), but calculating visual quality metrics")
+            # Use original data for calculation (bit accuracy will be 0%)
+            return evaluate_steganography(self.original_matrix, stego_img, self.encoded_data, self.encoded_data, max_capacity, extraction_failed=True) 

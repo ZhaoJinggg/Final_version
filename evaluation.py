@@ -32,20 +32,6 @@ def calculate_fsim(img1, img2):
         print(f"Error calculating FSIM: {e}")
         return 0.0
 
-def calculate_lsb_max_capacity(rgb_matrix, bits_per_channel=1):
-    """
-    Calculate maximum embedding capacity using LSB method
-    """
-    height, width, channels = rgb_matrix.shape
-    max_capacity = height * width * channels * bits_per_channel
-    
-    print(f"LSB capacity calculation:")
-    print(f"  Image size: {height}x{width}x{channels}")
-    print(f"  Bits per channel: {bits_per_channel}")
-    print(f"  Max capacity: {max_capacity} bits")
-    
-    return max_capacity
-
 def calculate_custom_max_capacity(rgb_matrix, variance_threshold, block_size=8):
     """
     Calculate maximum embedding capacity using custom method
@@ -91,7 +77,7 @@ def calculate_custom_max_capacity(rgb_matrix, variance_threshold, block_size=8):
     
     return max_capacity
 
-def evaluate_steganography(original_img, stego_img, original_data, extracted_data, max_capacity=None):
+def evaluate_steganography(original_img, stego_img, original_data, extracted_data, max_capacity=None, checksum_failed=False, extraction_failed=False):
     """
     Evaluate steganography system performance: capacity, visual quality, and data integrity
     """
@@ -112,13 +98,28 @@ def evaluate_steganography(original_img, stego_img, original_data, extracted_dat
     
     fsim_value = calculate_fsim(original_img, stego_img)
     
-    # Compare only the minimum length of both data
-    min_len = min(len(original_data), len(extracted_data))
-    correct_bits = sum(1 for a, b in zip(original_data[:min_len], extracted_data[:min_len]) if a == b)
-    bit_accuracy = correct_bits / min_len * 100 if min_len > 0 else 0
-    
-    # Count errors by position for analysis
-    error_positions = [i for i in range(min_len) if original_data[i] != extracted_data[i]]
+    # Handle data integrity evaluation based on extraction status
+    if extraction_failed:
+        bit_accuracy = 0.0
+        error_positions = []
+        error_count = len(original_data)  # All bits are considered errors
+        integrity_status = "Extraction Failed"
+    elif checksum_failed:
+        # Calculate real bit accuracy even when checksum fails
+        min_len = min(len(original_data), len(extracted_data))
+        correct_bits = sum(1 for a, b in zip(original_data[:min_len], extracted_data[:min_len]) if a == b)
+        bit_accuracy = correct_bits / min_len * 100 if min_len > 0 else 0
+        error_positions = [i for i in range(min_len) if original_data[i] != extracted_data[i]]
+        error_count = len(error_positions)
+        integrity_status = "Checksum Failed"
+    else:
+        # Normal case: compare original and extracted data
+        min_len = min(len(original_data), len(extracted_data))
+        correct_bits = sum(1 for a, b in zip(original_data[:min_len], extracted_data[:min_len]) if a == b)
+        bit_accuracy = correct_bits / min_len * 100 if min_len > 0 else 0
+        error_positions = [i for i in range(min_len) if original_data[i] != extracted_data[i]]
+        error_count = len(error_positions)
+        integrity_status = "Success"
     
     evaluation = {
         "capacity": capacity,
@@ -130,11 +131,14 @@ def evaluate_steganography(original_img, stego_img, original_data, extracted_dat
         "ms_ssim": ms_ssim_value,
         "fsim": fsim_value,
         "bit_accuracy": bit_accuracy,
-        "error_count": len(error_positions),
-        "error_positions": error_positions[:10] if error_positions else []  # First 10 error positions
+        "error_count": error_count,
+        "error_positions": error_positions[:10] if error_positions else [],  # First 10 error positions
+        "integrity_status": integrity_status,
+        "checksum_failed": checksum_failed,
+        "extraction_failed": extraction_failed
     }
     
-    print("\nSteganography System Evaluation:")
+    print("\nCustom Steganography System Evaluation:")
     print(f"  Used capacity: {capacity} bits ({evaluation['capacity_bpp']:.4f} bpp)")
     print(f"  Maximum capacity: {evaluation['max_capacity']} bits ({evaluation['max_capacity_bpp']:.4f} bpp)")
     print(f"  Capacity utilization: {(capacity / evaluation['max_capacity'] * 100):.2f}%")
@@ -142,67 +146,13 @@ def evaluate_steganography(original_img, stego_img, original_data, extracted_dat
     print(f"  SSIM: {ssim_value:.4f}")
     print(f"  MS-SSIM: {ms_ssim_value:.4f}")
     print(f"  FSIM: {fsim_value:.4f}")
-    print(f"  Bit accuracy: {bit_accuracy:.2f}%")
-    print(f"  Error count: {len(error_positions)} of {min_len} bits")
-    if error_positions:
-        print(f"  First few error positions: {evaluation['error_positions']}")
+    print(f"  Data integrity status: {integrity_status}")
+    if not extraction_failed:
+        print(f"  Bit accuracy: {bit_accuracy:.2f}%")
+        print(f"  Error count: {error_count} of {min(len(original_data), len(extracted_data))} bits")
+        if error_positions:
+            print(f"  First few error positions: {evaluation['error_positions']}")
+    else:
+        print(f"  Bit accuracy: N/A ({integrity_status})")
     
-    return evaluation
-
-def print_comparison_table(lsb_evaluation, custom_evaluation):
-    """
-    Print a formatted table comparing LSB and custom steganography methods
-    """
-    print("\n=== Steganography Methods Comparison ===\n")
-    
-    metrics = ["PSNR (dB)", "SSIM", "MS-SSIM", "FSIM", "Bit Accuracy (%)", "Used Capacity (bits)", "Max Capacity (bits)"]
-    lsb_values = [
-        lsb_evaluation["psnr"],
-        lsb_evaluation["ssim"],
-        lsb_evaluation["ms_ssim"],
-        lsb_evaluation["fsim"],
-        lsb_evaluation["bit_accuracy"],
-        lsb_evaluation["capacity"],
-        lsb_evaluation["max_capacity"]
-    ]
-    
-    custom_values = [
-        custom_evaluation["psnr"],
-        custom_evaluation["ssim"],
-        custom_evaluation["ms_ssim"],
-        custom_evaluation["fsim"],
-        custom_evaluation["bit_accuracy"],
-        custom_evaluation["capacity"],
-        custom_evaluation["max_capacity"]
-    ]
-    
-    # Print comparison table
-    print(f"{'Metric':<25} {'LSB Method':<15} {'Custom Method':<15} {'Difference':<15} {'Better Method'}")
-    print("-" * 85)
-    
-    for i, metric in enumerate(metrics):
-        lsb_val = lsb_values[i]
-        custom_val = custom_values[i]
-        diff = custom_val - lsb_val
-        
-        # Determine which is better (higher is better for all metrics)
-        if metric in ["PSNR (dB)", "SSIM", "MS-SSIM", "FSIM", "Bit Accuracy (%)", "Used Capacity (bits)", "Max Capacity (bits)"]:
-            better = "Custom" if custom_val > lsb_val else "LSB" if lsb_val > custom_val else "Equal"
-        else:
-            better = "Custom" if custom_val > lsb_val else "LSB" if lsb_val > custom_val else "Equal"
-        
-        # Format based on metric type
-        if metric == "PSNR (dB)" or metric == "Bit Accuracy (%)":
-            print(f"{metric:<25} {lsb_val:<15.2f} {custom_val:<15.2f} {diff:<15.2f} {better}")
-        elif "Capacity" in metric:
-            print(f"{metric:<25} {int(lsb_val):<15d} {int(custom_val):<15d} {int(diff):<15d} {better}")
-        else:
-            print(f"{metric:<25} {lsb_val:<15.4f} {custom_val:<15.4f} {diff:<15.4f} {better}")
-    
-    print("\nNotes:")
-    print("- Higher values are better for all metrics")
-    print("- PSNR: Peak Signal-to-Noise Ratio (higher means less visual distortion)")
-    print("- SSIM/MS-SSIM: Structural Similarity Index (higher means more similar images)")
-    print("- FSIM: Feature Similarity Index (higher means more similar images)")
-    print("- Bit Accuracy: Percentage of correctly extracted data bits")
-    print("- Max Capacity: Theoretical maximum bits that can be hidden") 
+    return evaluation 
